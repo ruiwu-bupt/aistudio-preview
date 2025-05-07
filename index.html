@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Studio对话查看器</title>
+    <!-- 引入marked.js用于解析Markdown -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        body {
+            font-family: "Microsoft YaHei", sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        
+        .sidebar {
+            width: 260px;
+            min-width: 260px;
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-right: 1px solid #ddd;
+            box-sizing: border-box;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            overflow: hidden;
+        }
+        
+        .main-content {
+            flex-grow: 1;
+            padding: 15px;
+            overflow-y: auto;
+            box-sizing: border-box;
+        }
+        
+        .file-upload {
+            margin-bottom: 12px;
+        }
+        
+        .file-upload h2 {
+            font-size: 16px;
+            margin: 0 0 8px 0;
+        }
+        
+        .outline {
+            margin-top: 10px;
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        .outline h3 {
+            font-size: 15px;
+            margin: 0 0 8px 0;
+        }
+        
+        .search-box {
+            margin-bottom: 8px;
+            width: 100%;
+        }
+        
+        .search-input {
+            width: 100%;
+            padding: 5px 8px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            box-sizing: border-box;
+            font-size: 13px;
+        }
+        
+        #outline-content {
+            overflow-y: auto;
+            flex-grow: 1;
+            max-height: calc(100vh - 220px);
+        }
+        
+        .outline-item {
+            margin-bottom: 4px;
+            cursor: pointer;
+            color: #0066cc;
+            padding: 4px 6px;
+            border-radius: 3px;
+            font-size: 13px;
+        }
+        
+        .outline-item:hover {
+            text-decoration: underline;
+            background-color: #e6f7ff;
+        }
+        
+        .outline-item.hidden {
+            display: none;
+        }
+        
+        .message {
+            margin-bottom: 15px;
+            padding: 12px;
+            border-radius: 6px;
+        }
+        
+        .user-message {
+            background-color: #e6f7ff;
+            border-left: 3px solid #1890ff;
+        }
+        
+        .model-message {
+            background-color: #f6ffed;
+            border-left: 3px solid #52c41a;
+        }
+        
+        .message-header {
+            font-weight: bold;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+        
+        #no-file {
+            text-align: center;
+            color: #999;
+            margin-top: 100px;
+        }
+        
+        /* Markdown样式优化 */
+        .markdown-content h1 {
+            font-size: 18px;
+            margin-top: 12px;
+            margin-bottom: 8px;
+        }
+        
+        .markdown-content h2 {
+            font-size: 16px;
+            margin-top: 10px;
+            margin-bottom: 8px;
+        }
+        
+        .markdown-content h3 {
+            font-size: 15px;
+            margin-top: 8px;
+            margin-bottom: 6px;
+        }
+        
+        .markdown-content p {
+            margin-bottom: 8px;
+            line-height: 1.5;
+        }
+        
+        .markdown-content ul, 
+        .markdown-content ol {
+            padding-left: 16px;
+            margin-bottom: 8px;
+        }
+        
+        .markdown-content blockquote {
+            padding: 6px 10px;
+            border-left: 3px solid #ddd;
+            background-color: #f9f9f9;
+            margin: 0 0 8px;
+        }
+        
+        .markdown-content code {
+            background-color: #f0f0f0;
+            padding: 2px 3px;
+            border-radius: 3px;
+            font-family: Consolas, Monaco, 'Courier New', monospace;
+            font-size: 12px;
+        }
+        
+        .markdown-content pre {
+            background-color: #f0f0f0;
+            padding: 8px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+        
+        .markdown-content img {
+            max-width: 100%;
+            height: auto;
+        }
+        
+        .search-result-info {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 6px;
+            font-style: italic;
+        }
+        
+        /* 美化文件上传区域 */
+        .file-upload-container {
+            border: 2px dashed #ccc;
+            border-radius: 6px;
+            padding: 8px;
+            text-align: center;
+            cursor: pointer;
+            margin-bottom: 10px;
+            transition: all 0.3s;
+        }
+        
+        .file-upload-container:hover {
+            border-color: #1890ff;
+            background-color: #e6f7ff;
+        }
+        
+        .file-upload-container.drag-over {
+            border-color: #1890ff;
+            background-color: #e6f7ff;
+        }
+        
+        .file-upload-label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 13px;
+            color: #666;
+        }
+        
+        /* 修复文件输入框问题 */
+        .file-input-wrapper {
+            position: relative;
+            display: inline-block;
+        }
+        
+        .file-select-btn {
+            background-color: #1890ff;
+            color: white;
+            padding: 4px 10px;
+            border: none;
+            border-radius: 4px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .file-select-btn:hover {
+            background-color: #40a9ff;
+        }
+        
+        .file-select-btn:active {
+            background-color: #096dd9;
+            transform: scale(0.95);
+            box-shadow: 0 0 2px rgba(0, 0, 0, 0.3);
+        }
+        
+        .file-input-wrapper input[type="file"] {
+            position: absolute;
+            left: 0;
+            top: 0;
+            opacity: 0;
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
+        }
+        
+        .file-name-display {
+            margin-top: 8px;
+            font-size: 13px;
+            color: #0066cc;
+            word-break: break-all;
+            padding: 4px;
+            background-color: #f0f8ff;
+            border-radius: 3px;
+            max-height: 40px;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+        }
+        
+        #current-file-name {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .clear-file-btn {
+            background-color: #f5f5f5;
+            border: 1px solid #ddd;
+            color: #666;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 12px;
+            margin-left: 5px;
+            cursor: pointer;
+            flex-shrink: 0;
+            transition: background-color 0.2s;
+        }
+        
+        .clear-file-btn:hover {
+            background-color: #e6e6e6;
+        }
+        
+        /* 多文件管理样式 */
+        .files-list {
+            margin-top: 10px;
+            border-top: 1px solid #eee;
+            padding-top: 10px;
+        }
+        
+        .files-list-title {
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <div class="file-upload">
+            <h2>AI Studio对话查看器</h2>
+            <div id="file-upload-container" class="file-upload-container">
+                <span class="file-upload-label">拖拽文件到此处或点击选择</span>
+                <div class="file-input-wrapper">
+                    <button class="file-select-btn">选择文件</button>
+                    <input type="file" id="file-input" accept=".json">
+                </div>
+            </div>
+            <div id="file-name-container" class="file-name-display" style="display: none;">
+                <span id="current-file-name"></span>
+                <button id="clear-file-btn" class="clear-file-btn" title="清除当前文件">×</button>
+            </div>
+        </div>
+        <div class="outline" id="outline">
+            <h3>对话提纲</h3>
+            <div class="search-box">
+                <input type="text" class="search-input" id="search-input" placeholder="搜索提纲...">
+                <div class="search-result-info" id="search-result-info"></div>
+            </div>
+            <div id="outline-content"></div>
+        </div>
+    </div>
+    
+    <div class="main-content" id="conversation">
+        <div id="no-file">
+            <h2>请选择一个文件</h2>
+            <p>在左侧上传对话文件以查看内容</p>
+        </div>
+    </div>
+
+    <script>
+        // 配置marked选项
+        marked.setOptions({
+            breaks: true, 
+            gfm: true,    
+            sanitize: false 
+        });
+        
+        // 本地存储键名
+        const STORAGE_KEY = 'ai_dialog_viewer_last_file';
+        
+        // DOM元素引用
+        const fileInput = document.getElementById('file-input');
+        const fileUploadContainer = document.getElementById('file-upload-container');
+        const fileNameContainer = document.getElementById('file-name-container');
+        const currentFileName = document.getElementById('current-file-name');
+        const clearFileBtn = document.getElementById('clear-file-btn');
+        
+        // 处理文件选择
+        fileInput.addEventListener('change', handleFileSelect);
+        
+        // 处理文件清除
+        clearFileBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            clearCurrentFile();
+        });
+        
+        // 阻止文件名容器的点击事件冒泡
+        fileNameContainer.addEventListener('click', function(e) {
+            e.stopPropagation();
+        });
+        
+        // 点击文件上传容器触发文件选择
+        fileUploadContainer.addEventListener('click', function(e) {
+            if (!e.target.closest('.file-input-wrapper')) {
+                fileInput.click();
+            }
+        });
+        
+        // 拖放相关事件
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            document.addEventListener(eventName, preventDefaults, false);
+        });
+        
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        
+        // 拖放样式
+        ['dragenter', 'dragover'].forEach(eventName => {
+            fileUploadContainer.addEventListener(eventName, function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                fileUploadContainer.classList.add('drag-over');
+            });
+        });
+        
+        ['dragleave', 'drop'].forEach(eventName => {
+            fileUploadContainer.addEventListener(eventName, function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                fileUploadContainer.classList.remove('drag-over');
+            });
+        });
+        
+        // 处理拖放文件
+        fileUploadContainer.addEventListener('drop', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                const file = e.dataTransfer.files[0];
+                processFile(file);
+            }
+        });
+        
+        // 处理文件选择
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            processFile(file);
+        }
+        
+        // 处理文件的共用函数
+        function processFile(file) {
+            // 显示文件名
+            displayFileName(file.name);
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const content = e.target.result;
+                    try {
+                        // 尝试解析为JSON
+                        const json = JSON.parse(content);
+                        
+                        // 缓存到本地存储
+                        saveToLocalStorage(file.name, content);
+                        
+                        renderConversation(json);
+                    } catch (jsonError) {
+                        // 如果不是JSON，尝试解析为纯文本对话
+                        console.error("解析JSON失败:", jsonError);
+                        alert('文件不是有效的JSON格式。请上传包含对话内容的JSON文件。');
+                    }
+                } catch (error) {
+                    alert('读取文件失败：' + error.message);
+                }
+            };
+            reader.readAsText(file);
+        }
+        
+        // 显示当前文件名
+        function displayFileName(fileName) {
+            currentFileName.textContent = fileName;
+            fileNameContainer.style.display = 'flex';
+        }
+        
+        // 保存到本地存储
+        function saveToLocalStorage(fileName, content) {
+            try {
+                const fileData = {
+                    name: fileName,
+                    content: content,
+                    timestamp: new Date().getTime()
+                };
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(fileData));
+            } catch (e) {
+                console.error('保存到本地存储失败:', e);
+                // 如果失败(可能是存储空间不足)，尝试只保存文件名和时间戳
+                try {
+                    const fileData = {
+                        name: fileName,
+                        timestamp: new Date().getTime()
+                    };
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(fileData));
+                } catch (e2) {
+                    console.error('保存文件信息到本地存储失败:', e2);
+                }
+            }
+        }
+        
+        // 从本地存储加载
+        function loadFromLocalStorage() {
+            try {
+                const fileData = JSON.parse(localStorage.getItem(STORAGE_KEY));
+                if (fileData && fileData.content) {
+                    // 显示文件名
+                    displayFileName(fileData.name);
+                    
+                    // 解析内容
+                    const json = JSON.parse(fileData.content);
+                    renderConversation(json);
+                    return true;
+                } else if (fileData && fileData.name) {
+                    // 如果只有文件名没有内容，显示文件名但提示需要重新加载
+                    displayFileName(fileData.name + ' (需要重新加载)');
+                }
+            } catch (e) {
+                console.error('从本地存储加载失败:', e);
+            }
+            return false;
+        }
+        
+        // 清除当前文件
+        function clearCurrentFile() {
+            // 清除文件输入
+            fileInput.value = '';
+            
+            // 隐藏文件名显示
+            fileNameContainer.style.display = 'none';
+            currentFileName.textContent = '';
+            
+            // 清除本地存储
+            localStorage.removeItem(STORAGE_KEY);
+            
+            // 清除对话内容
+            const conversationElem = document.getElementById('conversation');
+            const outlineContentElem = document.getElementById('outline-content');
+            
+            conversationElem.innerHTML = `
+                <div id="no-file">
+                    <h2>请选择一个文件</h2>
+                    <p>在左侧上传对话文件以查看内容</p>
+                </div>
+            `;
+            outlineContentElem.innerHTML = '';
+        }
+        
+        // 搜索功能
+        document.getElementById('search-input').addEventListener('input', function(event) {
+            const searchTerm = event.target.value.toLowerCase();
+            const outlineItems = document.querySelectorAll('.outline-item');
+            let matchCount = 0;
+            
+            outlineItems.forEach(item => {
+                const text = item.textContent.toLowerCase();
+                if (text.includes(searchTerm) || searchTerm === '') {
+                    item.classList.remove('hidden');
+                    matchCount++;
+                } else {
+                    item.classList.add('hidden');
+                }
+            });
+            
+            // 更新搜索结果信息
+            const searchResultInfo = document.getElementById('search-result-info');
+            if (searchTerm === '') {
+                searchResultInfo.textContent = '';
+            } else {
+                searchResultInfo.textContent = `找到 ${matchCount} 个匹配项`;
+            }
+        });
+        
+        function renderConversation(json) {
+            // 清除"请选择文件"提示
+            document.getElementById('no-file').style.display = 'none';
+            
+            // 获取对话内容
+            const chunks = json.chunkedPrompt.chunks;
+            const conversationElem = document.getElementById('conversation');
+            const outlineContentElem = document.getElementById('outline-content');
+            
+            conversationElem.innerHTML = '';
+            outlineContentElem.innerHTML = '';
+            
+            // 生成对话提纲
+            const userQuestions = chunks.filter(chunk => chunk.role === 'user');
+            let userQuestionIndex = 0;
+            
+            // 渲染所有非思考过程的消息
+            chunks.forEach((chunk, index) => {
+                // 跳过思考过程
+                if (chunk.isThought === true) {
+                    return;
+                }
+                
+                const isUser = chunk.role === 'user';
+                
+                // 创建消息元素
+                const messageElem = document.createElement('div');
+                messageElem.className = `message ${isUser ? 'user-message' : 'model-message'}`;
+                
+                if (isUser) {
+                    // 为用户消息创建一个ID，用于定位
+                    const questionId = `question-${userQuestionIndex}`;
+                    messageElem.id = questionId;
+                    
+                    // 为这个问题添加到提纲
+                    const outlineItem = document.createElement('div');
+                    outlineItem.className = 'outline-item';
+                    outlineItem.setAttribute('data-content', chunk.text.toLowerCase()); // 用于搜索
+                    
+                    // 获取问题全文，以便搜索功能能够查找完整内容
+                    const fullText = chunk.text;
+                    
+                    // 截取问题的前25个字符作为提纲显示 (更短以适应紧凑布局)
+                    const questionText = fullText.length > 25 ? 
+                        fullText.substring(0, 25) + '...' : 
+                        fullText;
+                    
+                    outlineItem.textContent = `${userQuestionIndex + 1}: ${questionText}`;
+                    outlineItem.onclick = function() {
+                        document.getElementById(questionId).scrollIntoView({ behavior: 'smooth' });
+                    };
+                    
+                    outlineContentElem.appendChild(outlineItem);
+                    userQuestionIndex++;
+                }
+                
+                // 消息头部
+                const headerElem = document.createElement('div');
+                headerElem.className = 'message-header';
+                headerElem.textContent = isUser ? '用户' : '模型回复';
+                messageElem.appendChild(headerElem);
+                
+                // 消息内容 - 使用Markdown渲染
+                const contentElem = document.createElement('div');
+                contentElem.className = 'message-content markdown-content';
+                contentElem.innerHTML = marked.parse(chunk.text);
+                messageElem.appendChild(contentElem);
+                
+                conversationElem.appendChild(messageElem);
+            });
+        }
+        
+        // 页面加载完成后尝试从本地存储恢复最后的文件
+        document.addEventListener('DOMContentLoaded', function() {
+            // 首先尝试从本地存储加载
+            const loadedFromStorage = loadFromLocalStorage();
+            
+            // 如果本地存储没有文件，且URL中有file参数，尝试从URL加载文件
+            if (!loadedFromStorage) {
+                const urlParams = new URLSearchParams(window.location.search);
+                const fileUrl = urlParams.get('file');
+                
+                if (fileUrl) {
+                    fetch(fileUrl)
+                        .then(response => response.text())
+                        .then(text => {
+                            try {
+                                const json = JSON.parse(text);
+                                // 显示从URL加载的文件名
+                                displayFileName('从URL加载的文件');
+                                
+                                // 缓存到本地存储
+                                saveToLocalStorage('从URL加载的文件', text);
+                                
+                                renderConversation(json);
+                            } catch (error) {
+                                console.error('解析文件失败:', error);
+                                alert('无法解析URL提供的文件，请确保是有效的JSON格式。');
+                            }
+                        })
+                        .catch(error => console.error('加载文件失败:', error));
+                }
+            }
+        });
+    </script>
+</body>
+</html>
