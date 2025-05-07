@@ -418,6 +418,10 @@
             
             if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
                 const file = e.dataTransfer.files[0];
+                
+                // 先清除之前的内存状态，但保留文件名显示
+                clearInMemoryState();
+                
                 processFile(file);
             }
         });
@@ -427,6 +431,9 @@
             const file = event.target.files[0];
             if (!file) return;
             
+            // 先清除之前的内存状态，但保留文件名显示
+            clearInMemoryState();
+            
             processFile(file);
         }
         
@@ -434,6 +441,10 @@
         function processFile(file) {
             // 显示文件名
             displayFileName(file.name);
+            
+            // 清除旧内容，显示加载中状态
+            const conversationElem = document.getElementById('conversation');
+            conversationElem.innerHTML = '<div style="text-align: center; margin-top: 50px;">加载中...</div>';
             
             const reader = new FileReader();
             reader.onload = function(e) {
@@ -443,17 +454,27 @@
                         // 尝试解析为JSON
                         const json = JSON.parse(content);
                         
+                        // 验证JSON格式是否符合预期
+                        if (!json.chunkedPrompt || !json.chunkedPrompt.chunks || !Array.isArray(json.chunkedPrompt.chunks)) {
+                            throw new Error("JSON格式不符合对话格式要求");
+                        }
+                        
                         // 缓存到本地存储
                         saveToLocalStorage(file.name, content);
                         
+                        // 渲染对话
                         renderConversation(json);
                     } catch (jsonError) {
-                        // 如果不是JSON，尝试解析为纯文本对话
+                        // 如果不是JSON或格式不符合，清除当前文件状态
                         console.error("解析JSON失败:", jsonError);
-                        alert('文件不是有效的JSON格式。请上传包含对话内容的JSON文件。');
+                        alert('文件不是有效的对话格式。请上传包含正确对话内容的JSON文件。');
+                        
+                        // 清除文件状态但保留文件名显示，以便用户知道哪个文件有问题
+                        clearFileState(false);
                     }
                 } catch (error) {
                     alert('读取文件失败：' + error.message);
+                    clearFileState(false);
                 }
             };
             reader.readAsText(file);
@@ -492,23 +513,72 @@
         // 从本地存储加载
         function loadFromLocalStorage() {
             try {
-                const fileData = JSON.parse(localStorage.getItem(STORAGE_KEY));
+                const fileDataStr = localStorage.getItem(STORAGE_KEY);
+                if (!fileDataStr) return false;
+                
+                const fileData = JSON.parse(fileDataStr);
+                if (!fileData) return false;
+                
                 if (fileData && fileData.content) {
                     // 显示文件名
-                    displayFileName(fileData.name);
+                    displayFileName(fileData.name || '未命名文件');
                     
-                    // 解析内容
-                    const json = JSON.parse(fileData.content);
-                    renderConversation(json);
-                    return true;
+                    try {
+                        // 解析内容
+                        const json = JSON.parse(fileData.content);
+                        
+                        // 验证格式是否符合要求
+                        if (!json.chunkedPrompt || !json.chunkedPrompt.chunks || !Array.isArray(json.chunkedPrompt.chunks)) {
+                            throw new Error("JSON格式不符合对话格式要求");
+                        }
+                        
+                        renderConversation(json);
+                        return true;
+                    } catch (parseError) {
+                        console.error('解析存储的JSON内容失败:', parseError);
+                        alert('存储的文件格式有误，请重新上传文件。');
+                        clearCurrentFile(); // 清除错误的存储内容
+                        return false;
+                    }
                 } else if (fileData && fileData.name) {
                     // 如果只有文件名没有内容，显示文件名但提示需要重新加载
                     displayFileName(fileData.name + ' (需要重新加载)');
+                    clearFileState(false); // 清除内容但保留文件名
                 }
             } catch (e) {
                 console.error('从本地存储加载失败:', e);
+                // 清除可能损坏的存储数据
+                localStorage.removeItem(STORAGE_KEY);
             }
             return false;
+        }
+        
+        // 清除文件状态，但可选是否保留文件名显示
+        function clearFileState(clearFileName = true) {
+            // 可选清除文件名显示
+            if (clearFileName) {
+                fileNameContainer.style.display = 'none';
+                currentFileName.textContent = '';
+            }
+            
+            // 清除对话内容
+            const conversationElem = document.getElementById('conversation');
+            const outlineContentElem = document.getElementById('outline-content');
+            
+            // 添加"请选择文件"提示
+            if (conversationElem) {
+                conversationElem.innerHTML = `
+                    <div id="no-file">
+                        <h2>请选择一个文件</h2>
+                        <p>在左侧上传对话文件以查看内容</p>
+                    </div>
+                `;
+            }
+            
+            // 清空提纲内容
+            if (outlineContentElem) {
+                outlineContentElem.innerHTML = '';
+            }
         }
         
         // 清除当前文件
@@ -516,24 +586,11 @@
             // 清除文件输入
             fileInput.value = '';
             
-            // 隐藏文件名显示
-            fileNameContainer.style.display = 'none';
-            currentFileName.textContent = '';
-            
             // 清除本地存储
             localStorage.removeItem(STORAGE_KEY);
             
-            // 清除对话内容
-            const conversationElem = document.getElementById('conversation');
-            const outlineContentElem = document.getElementById('outline-content');
-            
-            conversationElem.innerHTML = `
-                <div id="no-file">
-                    <h2>请选择一个文件</h2>
-                    <p>在左侧上传对话文件以查看内容</p>
-                </div>
-            `;
-            outlineContentElem.innerHTML = '';
+            // 完全清除文件状态（包括文件名）
+            clearFileState(true);
         }
         
         // 搜索功能
@@ -562,14 +619,12 @@
         });
         
         function renderConversation(json) {
-            // 清除"请选择文件"提示
-            document.getElementById('no-file').style.display = 'none';
-            
             // 获取对话内容
             const chunks = json.chunkedPrompt.chunks;
             const conversationElem = document.getElementById('conversation');
             const outlineContentElem = document.getElementById('outline-content');
             
+            // 清空当前内容
             conversationElem.innerHTML = '';
             outlineContentElem.innerHTML = '';
             
@@ -610,7 +665,10 @@
                     
                     outlineItem.textContent = `${userQuestionIndex + 1}: ${questionText}`;
                     outlineItem.onclick = function() {
-                        document.getElementById(questionId).scrollIntoView({ behavior: 'smooth' });
+                        const targetElement = document.getElementById(questionId);
+                        if (targetElement) {
+                            targetElement.scrollIntoView({ behavior: 'smooth' });
+                        }
                     };
                     
                     outlineContentElem.appendChild(outlineItem);
@@ -635,36 +693,78 @@
         
         // 页面加载完成后尝试从本地存储恢复最后的文件
         document.addEventListener('DOMContentLoaded', function() {
-            // 首先尝试从本地存储加载
-            const loadedFromStorage = loadFromLocalStorage();
+            // 确保在加载前DOM元素已正确初始化
+            const conversationElem = document.getElementById('conversation');
+            if (!conversationElem.querySelector('#no-file')) {
+                clearFileState(true);
+            }
             
-            // 如果本地存储没有文件，且URL中有file参数，尝试从URL加载文件
-            if (!loadedFromStorage) {
-                const urlParams = new URLSearchParams(window.location.search);
-                const fileUrl = urlParams.get('file');
+            // 首先尝试从本地存储加载
+            try {
+                const loadedFromStorage = loadFromLocalStorage();
                 
-                if (fileUrl) {
-                    fetch(fileUrl)
-                        .then(response => response.text())
-                        .then(text => {
-                            try {
-                                const json = JSON.parse(text);
-                                // 显示从URL加载的文件名
-                                displayFileName('从URL加载的文件');
-                                
-                                // 缓存到本地存储
-                                saveToLocalStorage('从URL加载的文件', text);
-                                
-                                renderConversation(json);
-                            } catch (error) {
-                                console.error('解析文件失败:', error);
-                                alert('无法解析URL提供的文件，请确保是有效的JSON格式。');
-                            }
-                        })
-                        .catch(error => console.error('加载文件失败:', error));
+                // 如果本地存储没有文件，且URL中有file参数，尝试从URL加载文件
+                if (!loadedFromStorage) {
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const fileUrl = urlParams.get('file');
+                    
+                    if (fileUrl) {
+                        // 显示加载状态
+                        if (conversationElem) {
+                            conversationElem.innerHTML = '<div style="text-align: center; margin-top: 50px;">正在从URL加载文件...</div>';
+                        }
+                        
+                        fetch(fileUrl)
+                            .then(response => {
+                                if (!response.ok) {
+                                    throw new Error('网络请求失败: ' + response.status);
+                                }
+                                return response.text();
+                            })
+                            .then(text => {
+                                try {
+                                    const json = JSON.parse(text);
+                                    // 验证JSON格式
+                                    if (!json.chunkedPrompt || !json.chunkedPrompt.chunks || !Array.isArray(json.chunkedPrompt.chunks)) {
+                                        throw new Error("JSON格式不符合对话格式要求");
+                                    }
+                                    
+                                    // 显示从URL加载的文件名
+                                    displayFileName('从URL加载的文件');
+                                    
+                                    // 缓存到本地存储
+                                    saveToLocalStorage('从URL加载的文件', text);
+                                    
+                                    renderConversation(json);
+                                } catch (error) {
+                                    console.error('解析文件失败:', error);
+                                    alert('无法解析URL提供的文件，请确保是有效的对话格式。');
+                                    clearFileState(true);
+                                }
+                            })
+                            .catch(error => {
+                                console.error('加载文件失败:', error);
+                                alert('从URL加载文件失败: ' + error.message);
+                                clearFileState(true);
+                            });
+                    }
                 }
+            } catch (e) {
+                console.error('初始化加载失败:', e);
+                // 如果加载失败，清除所有状态重新开始
+                clearCurrentFile();
             }
         });
+        
+        // 清除内存中的状态，但不影响文件显示和本地存储
+        function clearInMemoryState() {
+            const conversationElem = document.getElementById('conversation');
+            const outlineContentElem = document.getElementById('outline-content');
+            
+            // 清空DOM内容以释放内存
+            conversationElem.innerHTML = '';
+            outlineContentElem.innerHTML = '';
+        }
     </script>
 </body>
 </html>
