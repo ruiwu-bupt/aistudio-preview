@@ -1299,6 +1299,7 @@
             let userQuestionIndex = 0;
             chunks.forEach((chunk) => {
                 if (chunk.role === 'user' && chunk.isThought !== true) {
+                    if (!chunk.text) return;
                     const questionId = `question-${userQuestionIndex}`;
                     const outlineItem = document.createElement('div');
                     outlineItem.className = 'outline-item';
