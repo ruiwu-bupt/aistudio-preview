@@ -101,6 +101,12 @@
              gap: 3px;
         }
         
+        .outline-options input[type="checkbox"] {
+             margin: 0;
+             width: 12px; /* 调整大小 */
+             height: 12px;
+        }
+
         .outline-options input[type="radio"] {
              margin: 0;
              width: 12px; /* 调整大小 */
@@ -191,6 +197,11 @@
             border-bottom-left-radius: 0; /* 左下角直角 */
         }
         
+        .model-message .message-header {
+            display: flex;
+            align-items: center;
+        }
+
         .message-header {
             font-weight: 600; 
             margin-bottom: 0.5rem; /* 减小头部间距 */
@@ -198,6 +209,104 @@
             color: inherit;
             opacity: 0.7;
             text-transform: uppercase; /* 角色大写 */
+            position: relative; /* For positioning the button */
+            cursor: pointer; /* Indicate the header is clickable */
+        }
+        
+        /* Add a subtle hover effect on the header */
+        .model-message .message-header:hover {
+            background-color: rgba(0,0,0,0.03);
+        }
+
+        .toggle-collapse-btn {
+            background-color: #e9ecef;
+            border: 1px solid #ced4da;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.7rem;
+            cursor: pointer;
+            margin-left: 10px;
+            color: #495057;
+            transition: all 0.2s ease;
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
+        .toggle-collapse-btn:hover {
+            background-color: #d8dde2; /* Darker, more distinct hover */
+            border-color: #adb5bd;
+        }
+        
+        .message-content.collapsed {
+            max-height: 100px; /* Or any height you prefer for the preview */
+            overflow: hidden;
+            position: relative;
+            transition: max-height 0.5s ease-in-out;
+        }
+
+        .message-content.collapsed::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 50px;
+            background: linear-gradient(to bottom, transparent, #f1f3f5); /* Match model-message background */
+            pointer-events: none; /* Allows clicking through the gradient */
+        }
+        
+        .expand-from-preview-btn {
+            position: absolute;
+            bottom: 5px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 2;
+            background-color: transparent;
+            border: none;
+            color: #6c757d;
+            padding: 4px;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            width: 28px;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .expand-from-preview-btn:hover {
+            background-color: rgba(0, 0, 0, 0.08);
+            color: #343a40;
+        }
+
+        .collapse-at-bottom {
+            text-align: center;
+            padding-top: 5px;
+            padding-bottom: 5px;
+            display: none; /* Initially hidden */
+        }
+
+        .collapse-at-bottom button {
+            background-color: transparent;
+            border: none;
+            color: #6c757d;
+            padding: 4px;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            width: 28px;
+            height: 28px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .collapse-at-bottom button:hover {
+            background-color: rgba(0, 0, 0, 0.08);
+            color: #343a40;
         }
         
         .user-message .message-header {
@@ -581,6 +690,42 @@
              color: #343a40;
         }
 
+        .outline-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+
+        .outline-header h3 {
+            margin: 0;
+            font-size: 1rem;
+            color: #495057;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #e9ecef;
+            flex-grow: 1;
+        }
+
+        .outline-controls {
+            display: flex;
+            gap: 5px;
+            margin-left: 10px;
+        }
+        
+        .outline-control-btn {
+            background: none;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-size: 0.7rem;
+            cursor: pointer;
+            color: #495057;
+            transition: background-color 0.2s;
+        }
+
+        .outline-control-btn:hover {
+            background-color: #e9ecef;
+        }
+
 @media (max-width: 768px) {
     body {
         flex-direction: column;
@@ -785,11 +930,21 @@
         <div id="horizontal-resizer"></div>
 
         <div class="outline" id="sidebar-bottom">
-            <h3>对话提纲</h3>
+            <div class="outline-header">
+                <h3>对话提纲</h3>
+                 <div class="outline-controls">
+                    <button id="expand-all-btn" class="outline-control-btn" title="展开所有回复">全部展开</button>
+                    <button id="collapse-all-btn" class="outline-control-btn" title="收起所有长回复">全部收起</button>
+                </div>
+            </div>
             <div class="outline-options">
-                <label title="提纲高亮跟随视口中第一个可见的用户问题">
+                <label title="提纲高亮将自动滚动，以匹配您当前正在查看的对话部分">
                     <input type="checkbox" id="outline-follow-viewport" checked>
                     跟随视口
+                </label>
+                <label title="加载文件时，自动展开所有长回复。若不勾选，则默认收起。">
+                    <input type="checkbox" id="default-expand-switch" checked>
+                    默认展开
                 </label>
             </div>
             <div class="search-box">
@@ -833,12 +988,14 @@
         const conversationContainer = document.getElementById('conversation');
         const stickyHeader = document.getElementById('sticky-question-header');
         const stickyHeaderText = document.getElementById('sticky-question-text');
+        const defaultExpandSwitch = document.getElementById('default-expand-switch');
         
         // --- LocalStorage Keys ---
         const LS_OPEN_FILES = 'aiViewer_openFiles';
         const LS_ACTIVE_FILE_ID = 'aiViewer_activeFileId';
         const LS_SIDEBAR_WIDTH = 'aiViewer_sidebarWidth';
         const LS_LAYOUT_RATIO = 'aiViewer_layoutRatio'; // 上下布局比例
+        const LS_DEFAULT_EXPAND = 'aiViewer_defaultExpandState';
 
         // --- Global State ---
         let openFiles = {}; // 存储打开的文件信息 { id: { name: '...', content: '...' } }
@@ -916,7 +1073,7 @@
         
         // 处理文件的共用函数
         function processFile(file) {
-            // 清除旧内容，显示加载中状态
+            // 清除旧内容，显示加载中状態
             const conversationElem = document.getElementById('conversation');
             conversationElem.innerHTML = '<div style="text-align: center; margin-top: 50px;">加载中...</div>';
             
@@ -1036,6 +1193,11 @@
                         clearFileState(true);
                     });
             }
+
+            if (defaultExpandSwitch) {
+                defaultExpandSwitch.addEventListener('change', saveStateToLocalStorage);
+            }
+            
         });
         
         // 清除内存中的状态，但不影响文件显示和本地存储
@@ -1298,8 +1460,7 @@
             const chunks = json.chunkedPrompt.chunks;
             let userQuestionIndex = 0;
             chunks.forEach((chunk) => {
-                if (chunk.role === 'user' && chunk.isThought !== true) {
-                    if (!chunk.text) return;
+                if (chunk.role === 'user' && chunk.isThought !== true && chunk.text) {
                     const questionId = `question-${userQuestionIndex}`;
                     const outlineItem = document.createElement('div');
                     outlineItem.className = 'outline-item';
@@ -1317,7 +1478,6 @@
                         }
                     };
                     outlineContentElem.appendChild(outlineItem);
-                    // userMessages.push({ element: null, text: fullText, index: userQuestionIndex }); // 先存文本 - 此处不再需要，统一在渲染时处理
                     userQuestionIndex++;
                 }
             });
@@ -1325,7 +1485,7 @@
             // 渲染对话消息
             let currentUserMessageIndex = -1;
             chunks.forEach((chunk) => {
-                if (chunk.isThought === true) return; 
+                if (chunk.isThought === true || !chunk.text) return; 
 
                 const isUser = chunk.role === 'user';
                 const messageElem = document.createElement('div');
@@ -1335,33 +1495,119 @@
                     currentUserMessageIndex++;
                     messageElem.id = `question-${currentUserMessageIndex}`;
                     messageElem.setAttribute('data-question-index', currentUserMessageIndex);
-                    // 在渲染时填充 userMessages 数组
-                    if (userMessages.length <= currentUserMessageIndex) { // 确保数组有足够空间
+                    
+                    if (userMessages.length <= currentUserMessageIndex) {
                         userMessages.push({ element: messageElem, text: chunk.text, index: currentUserMessageIndex });
                     } else {
                         userMessages[currentUserMessageIndex] = { element: messageElem, text: chunk.text, index: currentUserMessageIndex };
                     }
-                } else {
-                    // 模型消息关联到上一个用户问题的索引
+                    
+                    const headerElem = document.createElement('div');
+                    headerElem.className = 'message-header';
+                    headerElem.textContent = '用户';
+                    messageElem.appendChild(headerElem);
+
+                    const contentElem = document.createElement('div');
+                    contentElem.className = 'message-content markdown-content';
+                    try {
+                        contentElem.innerHTML = marked.parse(chunk.text || ''); 
+                    } catch (e) {
+                        console.error("Markdown parsing error:", e);
+                        contentElem.textContent = "无法渲染此消息内容。";
+                    }
+                    messageElem.appendChild(contentElem);
+
+                } else { // This is a model message
                     if (currentUserMessageIndex >= 0) {
                          messageElem.setAttribute('data-related-question-index', currentUserMessageIndex);
                     }
-                }
 
-                const headerElem = document.createElement('div');
-                headerElem.className = 'message-header';
-                headerElem.textContent = isUser ? '用户' : '模型回复';
-                messageElem.appendChild(headerElem);
+                    const headerElem = document.createElement('div');
+                    headerElem.className = 'message-header';
+                    
+                    const titleElem = document.createElement('span');
+                    titleElem.textContent = '模型回复';
+                    headerElem.appendChild(titleElem);
+                    messageElem.appendChild(headerElem);
+                    
+                    const contentElem = document.createElement('div');
+                    contentElem.className = 'message-content markdown-content';
+                    try {
+                        contentElem.innerHTML = marked.parse(chunk.text || '');
+                    } catch (e) {
+                        console.error("Markdown parsing error:", e);
+                        contentElem.textContent = "无法渲染此消息内容。";
+                    }
+                    messageElem.appendChild(contentElem);
 
-                const contentElem = document.createElement('div');
-                contentElem.className = 'message-content markdown-content';
-                try {
-                     contentElem.innerHTML = marked.parse(chunk.text || ''); 
-                } catch (e) {
-                    console.error("Markdown parsing error:", e);
-                    contentElem.textContent = "无法渲染此消息内容。";
+                    // --- 折叠逻辑 ---
+                    const isLongContent = (chunk.text || '').length > 500 || (chunk.text || '').split('\n').length > 10;
+                    
+                    if (isLongContent) {
+                        messageElem.setAttribute('data-collapsible', 'true');
+
+                        const toggleBtn = document.createElement('button');
+                        toggleBtn.className = 'toggle-collapse-btn';
+                        headerElem.appendChild(toggleBtn);
+
+                        const expandFromPreviewBtn = document.createElement('button');
+                        expandFromPreviewBtn.className = 'expand-from-preview-btn';
+                        expandFromPreviewBtn.title = '展开';
+                        expandFromPreviewBtn.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z"/></svg>`;
+                        contentElem.appendChild(expandFromPreviewBtn);
+
+                        const collapseAtBottomContainer = document.createElement('div');
+                        collapseAtBottomContainer.className = 'collapse-at-bottom';
+                        const collapseAtBottomBtn = document.createElement('button');
+                        collapseAtBottomBtn.title = '收起';
+                        collapseAtBottomBtn.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M12 8l-6 6 1.41 1.41L12 10.83l4.59 4.58L18 14z"/></svg>`;
+                        collapseAtBottomContainer.appendChild(collapseAtBottomBtn);
+                        
+                        const isInitiallyCollapsed = defaultExpandSwitch ? !defaultExpandSwitch.checked : false;
+
+                        if (isInitiallyCollapsed) {
+                            contentElem.classList.add('collapsed');
+                            toggleBtn.textContent = '展开';
+                            expandFromPreviewBtn.style.display = 'flex';
+                            collapseAtBottomContainer.style.display = 'none';
+                        } else {
+                            toggleBtn.textContent = '收起';
+                            expandFromPreviewBtn.style.display = 'none';
+                            collapseAtBottomContainer.style.display = 'block';
+                            contentElem.style.maxHeight = 'none';
+                        }
+
+                        function toggleCollapse(e) {
+                            if (e) e.stopPropagation(); 
+                            
+                            const isCurrentlyCollapsed = contentElem.classList.contains('collapsed');
+                            
+                            if (isCurrentlyCollapsed) {
+                                contentElem.classList.remove('collapsed');
+                                toggleBtn.textContent = '收起';
+                                expandFromPreviewBtn.style.display = 'none';
+                                collapseAtBottomContainer.style.display = 'block'; 
+                                contentElem.style.maxHeight = 'none';
+                            } else {
+                                contentElem.classList.add('collapsed');
+                                toggleBtn.textContent = '展开';
+                                expandFromPreviewBtn.style.display = 'flex';
+                                collapseAtBottomContainer.style.display = 'none';
+                                contentElem.style.maxHeight = ''; 
+                                const headerRect = headerElem.getBoundingClientRect();
+                                if (headerRect.top < 0 || headerRect.bottom > window.innerHeight) {
+                                     headerElem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                }
+                            }
+                        }
+
+                        headerElem.addEventListener('click', toggleCollapse);
+                        collapseAtBottomBtn.addEventListener('click', toggleCollapse);
+                        expandFromPreviewBtn.addEventListener('click', toggleCollapse);
+
+                        messageElem.appendChild(collapseAtBottomContainer);
+                    }
                 }
-                messageElem.appendChild(contentElem);
                 
                 conversationElem.appendChild(messageElem);
             });
@@ -1369,6 +1615,25 @@
             // 初始化 IntersectionObserver
             setupIntersectionObserver(conversationContainer, userMessages);
         }
+        
+        // --- 全局展开/收起 ---
+        function toggleAllReplies(expand) {
+            const collapsibleMessages = document.querySelectorAll('[data-collapsible="true"]');
+            collapsibleMessages.forEach(msg => {
+                const header = msg.querySelector('.message-header');
+                if (header) {
+                     // 模拟点击头部来触发展开/收起，确保状态一致
+                    const content = msg.querySelector('.message-content');
+                    const isCollapsed = content.classList.contains('collapsed');
+                    if ((expand && isCollapsed) || (!expand && !isCollapsed)) {
+                        header.click();
+                    }
+                }
+            });
+        }
+
+        document.getElementById('expand-all-btn').addEventListener('click', () => toggleAllReplies(true));
+        document.getElementById('collapse-all-btn').addEventListener('click', () => toggleAllReplies(false));
 
         // 设置 IntersectionObserver 监控消息可见性
         function setupIntersectionObserver(container, userMessages) {
@@ -1507,6 +1772,9 @@
                     const ratio = topHeight / totalHeight;
                     localStorage.setItem(LS_LAYOUT_RATIO, ratio.toFixed(2));
                 }
+                if (defaultExpandSwitch) {
+                    localStorage.setItem(LS_DEFAULT_EXPAND, defaultExpandSwitch.checked);
+                }
             } catch (e) {
                 console.error("Failed to save state to localStorage:", e);
             }
@@ -1519,11 +1787,18 @@
                 const savedActiveId = localStorage.getItem(LS_ACTIVE_FILE_ID);
                 const savedSidebarWidth = localStorage.getItem(LS_SIDEBAR_WIDTH);
                 const savedLayoutRatio = parseFloat(localStorage.getItem(LS_LAYOUT_RATIO));
+                const savedDefaultExpand = localStorage.getItem(LS_DEFAULT_EXPAND);
 
                 if (savedSidebarWidth) {
                      sidebar.style.width = savedSidebarWidth;
                 }
                 
+                if (defaultExpandSwitch) {
+                    if (savedDefaultExpand !== null) {
+                        defaultExpandSwitch.checked = (savedDefaultExpand === 'true');
+                    }
+                }
+
                 // 恢复布局比例 - 仅限非移动端
                 if (!isMobile()) { 
                     if (!isNaN(savedLayoutRatio) && savedLayoutRatio > 0 && savedLayoutRatio < 1) {
@@ -1577,6 +1852,7 @@
                 localStorage.removeItem(LS_ACTIVE_FILE_ID);
                 localStorage.removeItem(LS_SIDEBAR_WIDTH);
                 localStorage.removeItem(LS_LAYOUT_RATIO);
+                localStorage.removeItem(LS_DEFAULT_EXPAND);
                 clearFileState(true);
             }
         }
