@@ -935,6 +935,8 @@
                  <div class="outline-controls">
                     <button id="expand-all-btn" class="outline-control-btn" title="展开所有回复">全部展开</button>
                     <button id="collapse-all-btn" class="outline-control-btn" title="收起所有长回复">全部收起</button>
+                    <button id="export-md-btn" class="outline-control-btn" title="导出当前对话为 Markdown 文件">导出MD</button>
+                    <button id="copy-md-btn" class="outline-control-btn" title="复制当前对话为 Markdown 到剪贴板">复制MD</button>
                 </div>
             </div>
             <div class="outline-options">
@@ -989,6 +991,8 @@
         const stickyHeader = document.getElementById('sticky-question-header');
         const stickyHeaderText = document.getElementById('sticky-question-text');
         const defaultExpandSwitch = document.getElementById('default-expand-switch');
+        const exportMdBtn = document.getElementById('export-md-btn');
+        const copyMdBtn = document.getElementById('copy-md-btn');
         
         // --- LocalStorage Keys ---
         const LS_OPEN_FILES = 'aiViewer_openFiles';
@@ -1005,6 +1009,10 @@
         
         let intersectionObserver = null;
         let lastVisibleUserQuestion = null;
+        // 记录最近一次实际渲染到页面的对话来源，确保导出/复制永远与可见内容一致
+        let lastRenderedJson = null;
+        let lastRenderedFileId = null;
+        let lastRenderedFileName = '';
         
         // --- File Handling Logic ---
         
@@ -1112,11 +1120,15 @@
             reader.readAsText(file);
         }
         
-        // 生成唯一ID (稍微改进，使其更稳定)
+        // 生成唯一ID（基于完整内容 + 名称的稳定哈希，避免旧文件覆盖新文件）
         function generateUniqueId(name, content) {
-            // 简单的基于名称和内容长度的哈希，实际应用可能需要更可靠方法
-            const hash = name + '_' + content.length;
-            return hash.split('').reduce((a,b)=>{a=((a<<5)-a)+b.charCodeAt(0);return a&a},0).toString(16);
+            const input = `${name}::${content}`;
+            let hash = 5381; // djb2
+            for (let i = 0; i < input.length; i++) {
+                hash = ((hash << 5) + hash) ^ input.charCodeAt(i);
+            }
+            // 转为无符号并输出十六进制
+            return (hash >>> 0).toString(16);
         }
         
         // 清除文件状态，但可选是否保留文件名显示
@@ -1139,6 +1151,11 @@
             if (outlineContentElem) {
                 outlineContentElem.innerHTML = '';
             }
+            // 清理最近渲染的缓存，避免误导出旧内容
+            lastRenderedJson = null;
+            lastRenderedFileId = null;
+            lastRenderedFileName = '';
+            updateMarkdownButtonsState();
         }
 
         // --- 初始化和URL加载逻辑 ---
@@ -1197,6 +1214,17 @@
             if (defaultExpandSwitch) {
                 defaultExpandSwitch.addEventListener('change', saveStateToLocalStorage);
             }
+
+            // 绑定导出 / 复制按钮事件
+            if (exportMdBtn) {
+                exportMdBtn.addEventListener('click', onExportMarkdownClicked);
+            }
+            if (copyMdBtn) {
+                copyMdBtn.addEventListener('click', onCopyMarkdownClicked);
+            }
+
+            // 根据是否有活动文件更新按钮可用状态
+            updateMarkdownButtonsState();
             
         });
         
@@ -1358,6 +1386,7 @@
             
             renderFileList(); // 更新高亮列表项
             saveStateToLocalStorage();
+            updateMarkdownButtonsState();
             
             try {
                 const json = JSON.parse(file.content);
@@ -1396,6 +1425,7 @@
             
             renderFileList(); // 更新文件列表
             saveStateToLocalStorage();
+            updateMarkdownButtonsState();
         }
 
         // 打开文件并添加到列表 (替代 openFileInTab)
@@ -1413,7 +1443,7 @@
                 }
             }
             
-            openFiles[fileId] = { name: fileName, content: fileContent };
+            openFiles[fileId] = { name: fileName, content: fileContent, openedAt: Date.now() };
             
             try {
                 const fileKey = 'ai_dialog_file_' + fileId;
@@ -1428,6 +1458,7 @@
             
             switchToFile(fileId); 
             saveStateToLocalStorage(); 
+            updateMarkdownButtonsState();
             return true;
         }
 
@@ -1449,6 +1480,9 @@
             conversationElem.innerHTML = '';
             outlineContentElem.innerHTML = '';
             userMessages = []; // 清空全局的 userMessages
+            lastRenderedJson = json; // 记录本次渲染的数据
+            lastRenderedFileId = activeFileId;
+            lastRenderedFileName = openFiles[activeFileId]?.name || '';
             
             // 验证数据结构
             if (!json || !json.chunkedPrompt || !json.chunkedPrompt.chunks || !Array.isArray(json.chunkedPrompt.chunks)) {
@@ -1634,6 +1668,198 @@
 
         document.getElementById('expand-all-btn').addEventListener('click', () => toggleAllReplies(true));
         document.getElementById('collapse-all-btn').addEventListener('click', () => toggleAllReplies(false));
+
+        // --- Markdown Export / Copy ---
+        /**
+         * 更新导出/复制按钮可用状态
+         */
+        function updateMarkdownButtonsState() {
+            const enabled = !!(activeFileId && openFiles[activeFileId]);
+            if (exportMdBtn) exportMdBtn.disabled = !enabled;
+            if (copyMdBtn) copyMdBtn.disabled = !enabled;
+        }
+
+        /**
+         * 提取一个合适的标题，优先使用第一条用户消息的摘要
+         * @param {object} json 对话JSON
+         * @returns {string}
+         */
+        function extractMarkdownTitle(json) {
+            try {
+                const chunks = json.chunkedPrompt?.chunks || [];
+                const firstUser = chunks.find(c => c.role === 'user' && c.isThought !== true && c.text);
+                if (firstUser && typeof firstUser.text === 'string') {
+                    const raw = firstUser.text.replace(/\s+/g, ' ').trim();
+                    const title = raw.length > 30 ? raw.slice(0, 30) + '…' : raw;
+                    return title || '对话导出';
+                }
+            } catch (e) { /* no-op */ }
+            return '对话导出';
+        }
+
+        /**
+         * 依据当前活动文件构建 Markdown 文本
+         * @returns {string|null}
+         */
+        function buildMarkdownForActiveFile() {
+            // 优先使用当前屏幕上“已渲染”的对话，防止导出到旧文件
+            if (lastRenderedJson) {
+                const name = lastRenderedFileName || openFiles[lastRenderedFileId]?.name || openFiles[activeFileId]?.name || '未命名';
+                try {
+                    return generateMarkdownFromConversation(lastRenderedJson, name);
+                } catch (e) {
+                    console.error('从已渲染内容生成 Markdown 失败', e);
+                }
+            }
+
+            // 回退：使用当前活动文件
+            if (!activeFileId || !openFiles[activeFileId]) return null;
+            const file = openFiles[activeFileId];
+            try {
+                const json = JSON.parse(file.content);
+                return generateMarkdownFromConversation(json, file.name);
+            } catch (e) {
+                console.error('生成 Markdown 失败: 无法解析JSON', e);
+                return null;
+            }
+        }
+
+        /**
+         * 生成 Markdown 内容（参考截图风格：标题 + User/Assistant 分段）
+         * @param {object} json 对话JSON（含 chunkedPrompt.chunks）
+         * @param {string} fileName 源文件名
+         * @returns {string}
+         */
+        function generateMarkdownFromConversation(json, fileName) {
+            const title = extractMarkdownTitle(json);
+            const exportedAt = new Date().toLocaleString();
+            const lines = [];
+
+            // 文档头
+            lines.push(`# ${title}`);
+            lines.push('');
+            lines.push(`> 来源文件: ${fileName || '未命名'}  \, 导出时间: ${exportedAt}`);
+            lines.push('');
+
+            // 正文：将相邻的模型回复合并为同一轮的答案，用户与答案之间加入分隔线
+            const chunks = Array.isArray(json?.chunkedPrompt?.chunks) ? json.chunkedPrompt.chunks : [];
+            const pairs = [];
+            let currentUser = null;
+            let currentAssistantParts = [];
+
+            const flushPair = () => {
+                if (currentUser !== null || currentAssistantParts.length > 0) {
+                    pairs.push({
+                        user: (currentUser ?? '').trim(),
+                        assistant: currentAssistantParts.join('\n\n').trim()
+                    });
+                }
+                currentUser = null;
+                currentAssistantParts = [];
+            };
+            // 移除调试输出（如需调试可临时打开）
+            for (const chunk of chunks) {
+                if (!chunk || chunk.isThought === true || !chunk.text) {
+                    continue;
+                }
+                if (chunk.role === 'user') {
+                    // 新一轮用户到来，先结算上一轮
+                    flushPair();
+                    currentUser = chunk.text;
+                } else {
+                    // 模型/助手内容归并到当前轮
+                    currentAssistantParts.push(chunk.text);
+                }
+            }
+            // 收尾
+            flushPair();
+
+            // 输出分组后的 Markdown
+            pairs.forEach((p, idx) => {
+                const round = idx + 1;
+                lines.push(`### 🧑‍💬 User ${round}`);
+                lines.push('');
+                if (p.user) lines.push(p.user);
+                lines.push('');
+                // 用户与答案之间的分隔线
+                lines.push('---');
+                lines.push('');
+                lines.push('### 🤖 Assistant');
+                lines.push('');
+                if (p.assistant) lines.push(p.assistant);
+                lines.push('');
+            });
+
+            return lines.join('\n');
+        }
+
+        /**
+         * 安全的文件名
+         * @param {string} name 
+         * @returns {string}
+         */
+        function toSafeFileName(name) {
+            return (name || 'export')
+                .replace(/[\\/:*?"<>|]/g, '_')
+                .replace(/\s+/g, ' ')
+                .trim();
+        }
+
+        /**
+         * 处理导出按钮点击
+         */
+        function onExportMarkdownClicked() {
+            const md = buildMarkdownForActiveFile();
+            if (!md) {
+                alert('没有可导出的对话内容。');
+                return;
+            }
+
+            const srcName = openFiles[activeFileId]?.name || 'export';
+            const base = toSafeFileName(srcName.replace(/\.[^.]+$/, ''));
+            const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const fileName = `${base}-${stamp}.md`;
+
+            const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        /**
+         * 处理复制按钮点击
+         */
+        async function onCopyMarkdownClicked() {
+            const md = buildMarkdownForActiveFile();
+            if (!md) {
+                alert('没有可复制的对话内容。');
+                return;
+            }
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(md);
+                } else {
+                    // 兼容性降级
+                    const ta = document.createElement('textarea');
+                    ta.value = md;
+                    ta.style.position = 'fixed';
+                    ta.style.opacity = '0';
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(ta);
+                }
+                alert('Markdown 已复制到剪贴板');
+            } catch (e) {
+                console.error('复制失败', e);
+                alert('复制失败，请重试或尝试导出文件。');
+            }
+        }
 
         // 设置 IntersectionObserver 监控消息可见性
         function setupIntersectionObserver(container, userMessages) {
@@ -1825,7 +2051,8 @@
                     if (fileContent) {
                         openFiles[fileId] = {
                             name: savedFilesMeta[fileId].name,
-                            content: fileContent
+                            content: fileContent,
+                            openedAt: Date.now()
                         };
                     } else {
                         console.warn(`Content for file ${fileId} not found in localStorage.`);
@@ -1839,8 +2066,9 @@
                 if (savedActiveId && openFiles[savedActiveId]) {
                     switchToFile(savedActiveId);
                 } else if (Object.keys(openFiles).length > 0) {
-                    // 如果上次活动的无效，切换到第一个
-                    switchToFile(Object.keys(openFiles)[0]);
+                    // 如果上次活动的无效，切换到最新打开的一个
+                    const sorted = Object.keys(openFiles).sort((a,b) => (openFiles[a].openedAt||0) - (openFiles[b].openedAt||0));
+                    switchToFile(sorted[sorted.length - 1]);
                 } else {
                      clearFileState(true); // 没有任何文件，显示初始状态
                 }
